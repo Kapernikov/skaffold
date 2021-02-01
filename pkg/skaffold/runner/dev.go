@@ -144,6 +144,21 @@ func (r *SkaffoldRunner) doDev(ctx context.Context, out io.Writer, logger *kuber
 	return nil
 }
 
+func (r *SkaffoldRunner) DependenciesForArtifactRecursive(ctx context.Context, out io.Writer, artifacts []*latest.Artifact, artifact *latest.Artifact) ([]string, error) {
+	paths, err := build.DependenciesForArtifact(ctx, artifact, r.runCtx, r.artifactStore)
+	for _, img := range artifact.Dependencies {
+		n := img.ImageName
+		for _, a := range artifacts {
+			if a.ImageName == n {
+				d_paths, d_err := r.DependenciesForArtifactRecursive(ctx, out, artifacts, a)
+				paths = append(paths, d_paths...)
+				err = d_err
+			}
+		}
+	}
+	return paths, err
+}
+
 // Dev watches for changes and runs the skaffold build, test and deploy
 // config until interrupted by the user.
 func (r *SkaffoldRunner) Dev(ctx context.Context, out io.Writer, artifacts []*latest.Artifact) error {
@@ -168,7 +183,8 @@ func (r *SkaffoldRunner) Dev(ctx context.Context, out io.Writer, artifacts []*la
 		default:
 			if err := r.monitor.Register(
 				func() ([]string, error) {
-					return build.DependenciesForArtifact(ctx, artifact, r.runCtx, r.artifactStore)
+					paths, err := r.DependenciesForArtifactRecursive(ctx, out, artifacts, artifact)
+					return paths, err
 				},
 				func(e filemon.Events) {
 					s, err := sync.NewItem(ctx, artifact, e, r.builds, r.runCtx, len(g[artifact.ImageName]))
